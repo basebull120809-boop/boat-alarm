@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 
 TARGET_BOAT = 1
-TARGET_RANK = 6
+TARGET_RANK = 4
 NTFY_TOPIC = "tanaka-boat-alert-3958"
 ALERTED_FILE = "alerted.json"
 
