@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 
 TARGET_BOAT = 1
-TARGET_RANK = 4
+TARGET_RANK = 6  # 6位 = 6艇中もっとも遅い（標準的な意味）
 NTFY_TOPIC = "tanaka-boat-alert-3958"
 ALERTED_FILE = "alerted.json"
 
@@ -17,6 +17,9 @@ HEADERS = {
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 }
 BASE = "https://www.boatrace.jp/owpc/pc/race"
+
+# 展示タイムらしき文字列だけを拾うための正規表現（例: 6.85 のような小数）
+TIME_PATTERN = re.compile(r"^\d\.\d{1,2}$")
 
 
 def today_str():
@@ -97,26 +100,28 @@ def get_exhibition_times(jcd, rno, hd):
             first_text = cells[0].get_text(strip=True)
             if first_text in ["1", "2", "3", "4", "5", "6"]:
                 boat_no = int(first_text)
-                for c in cells:
+                # 艇番セル(cells[0])自体は候補から除外し、
+                # 「6.85」のような小数表記のセルだけを展示タイムとして拾う
+                for c in cells[1:]:
                     t = c.get_text(strip=True)
-                    try:
-                        val = float(t)
-                        if 5.5 <= val <= 8.5 and boat_no not in times:
-                            times[boat_no] = val
-                    except ValueError:
+                    if not TIME_PATTERN.match(t):
                         continue
+                    val = float(t)
+                    if 5.5 <= val <= 8.5 and boat_no not in times:
+                        times[boat_no] = val
 
     return times if len(times) == 6 else None
 
 
-def send_ntfy(jcd, rno, times):
-    msg = f"場コード{jcd} {rno}R\n1号艇の展示タイムが6位（最下位）です！\n{times}"
+def send_ntfy(jcd, rno, times, rank):
+    msg = (f"場コード{jcd} {rno}R\n"
+           f"1号艇の展示タイムが{rank}位（6艇中）です！\n{times}")
     try:
         requests.post(
             f"https://ntfy.sh/{NTFY_TOPIC}",
             data=msg.encode("utf-8"),
             headers={
-                "Title": "競艇アラーム：1号艇 展示6位".encode("utf-8"),
+                "Title": f"競艇アラーム：1号艇 展示{rank}位".encode("utf-8"),
                 "Priority": "high",
                 "Tags": "rotating_light",
             },
@@ -145,14 +150,15 @@ def main():
         if not times:
             continue
 
-        ranked = sorted(times.items(), key=lambda x: -x[1])
+        # 標準的な意味: タイムが速い(小さい)順に1位〜6位
+        ranked = sorted(times.items(), key=lambda x: x[1])
         rank_map = {boat: i + 1 for i, (boat, t) in enumerate(ranked)}
         boat1_rank = rank_map.get(TARGET_BOAT)
 
-        print(f"jcd={jcd} {rno}R 1号艇展示={times.get(1)} 順位(遅い順)={boat1_rank}位")
+        print(f"jcd={jcd} {rno}R 1号艇展示={times.get(1)} 順位(速い順)={boat1_rank}位  全艇={times}")
 
         if boat1_rank == TARGET_RANK:
-            send_ntfy(jcd, rno, times)
+            send_ntfy(jcd, rno, times, boat1_rank)
             alerted_set.add(race_key)
 
     alerted["races"] = list(alerted_set)
@@ -161,4 +167,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+                    
 
